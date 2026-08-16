@@ -2,9 +2,11 @@
 
 An interactive, cinematic Three.js (r185) globe recreated from the reference clip
 `bytedance_video-upscaler_773054b3a5b1464db10f6791f3ebed42_0.mp4`: a monochrome
-dot-matrix Earth spinning in space — beaded coastline dots, dim dash-grid interiors,
-occasional satellite streaks, dust drifting off the limb, film grain and vignette.
-Space is expanded with a restrained starfield and faint nebula.
+dot-matrix Earth spinning in space — beaded coastline dots, a uniform grid of tiny
+lit-sphere dots inland that grow bigger and brighter over high-population regions
+(driven by real GeoNames city data), occasional satellite streaks, dust drifting
+off the limb, film grain and vignette. Space is expanded with a restrained
+starfield and faint nebula.
 
 ## Run it
 
@@ -47,7 +49,10 @@ python3 tools/build.py
   min build's relative `./three.core.min.js` import can't resolve from a data URI)
   as a base64 ES-module data URI,
 - a 1024×512 land mask rasterized (pure-Python even-odd scanline, antimeridian-safe)
-  from `world-atlas` `land-110m.json`.
+  from `world-atlas` `land-110m.json`,
+- ~2,200 cities with population ≥200k (`tools/vendor/cities-pop.json`, extracted
+  from the `all-the-cities` npm package / GeoNames), packed 5 bytes per city and
+  splatted into a population-influence raster at runtime.
 
 Vendor inputs are fetched with `npm pack three@0.185.1 world-atlas@2.0.2` if not
 provided via `--three` / `--land`.
@@ -57,3 +62,5 @@ provided via `--three` / `--land`.
 - [three.js](https://threejs.org) — MIT © 2010–2026 Three.js Authors (embedded in `index.html`)
 - [world-atlas](https://github.com/topojson/world-atlas) — ISC; derived from
   [Natural Earth](https://www.naturalearthdata.com/) (public domain)
+- City populations from [GeoNames](https://www.geonames.org/) via
+  [all-the-cities](https://www.npmjs.com/package/all-the-cities) — CC BY 4.0 / MIT

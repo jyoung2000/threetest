@@ -142,6 +142,21 @@ def rasterize(rings) -> bytearray:
     return mask
 
 
+def pack_cities(path: Path) -> bytes:
+    """cities-pop.json [[lon, lat, pop], ...] -> 5 bytes/city:
+    lat*100 int16 LE, lon*100 int16 LE, weight uint8 (log-scaled population)."""
+    import struct
+    cities = json.loads(path.read_text())
+    lo, hi = math.log10(2e5), math.log10(2.5e7)
+    out = bytearray()
+    for lon, lat, pop in cities:
+        w = round(255 * (math.log10(max(pop, 2e5)) - lo) / (hi - lo))
+        out += struct.pack("<hhB", round(lat * 100), round(lon * 100),
+                           max(0, min(255, w)))
+    print(f"cities: {len(cities)} packed into {len(out):,} bytes")
+    return bytes(out)
+
+
 def ascii_preview(mask: bytearray, w=96, h=30) -> str:
     lines = []
     for j in range(h):
@@ -159,6 +174,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--three", type=Path, default=None)
     ap.add_argument("--land", type=Path, default=None)
+    ap.add_argument("--cities", type=Path, default=TOOLS / "vendor" / "cities-pop.json")
     ap.add_argument("--out", type=Path, default=ROOT / "index.html")
     args = ap.parse_args()
 
@@ -206,6 +222,7 @@ def main():
 
     three_b64 = base64.b64encode(three_js.read_bytes()).decode()
     mask_b64 = base64.b64encode(bytes(mask)).decode()
+    cities_b64 = base64.b64encode(pack_cities(args.cities)).decode()
 
     html = (TOOLS / "template.html").read_text()
     for token, value in [
@@ -213,6 +230,7 @@ def main():
         ("__MASK_B64__", mask_b64),
         ("__MASK_W__", str(MASK_W)),
         ("__MASK_H__", str(MASK_H)),
+        ("__CITIES_B64__", cities_b64),
         ("__TONE__", "#include <tonemapping_fragment>\n      #include <colorspace_fragment>"),
     ]:
         if token not in html:
