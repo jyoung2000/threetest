@@ -2,14 +2,18 @@
 name: threejs-cinematic-models
 description: >-
   Build cinematic, high-fidelity 3D web experiences with Three.js (r185) that still load
-  fast and hold framerate on desktop, tablet, and mobile. Covers turning an image or a text
-  description into an animated 3D model (AI image-to-3D services, Gaussian splats,
+  fast and hold framerate on desktop, tablet, and mobile. Covers turning an image, a video
+  reference, or a text description into an animated 3D model (AI image-to-3D services,
+  Gaussian splats from video capture, video frame extraction to photogrammetry or
+  multi-view meshes, VideoTexture, motion reference,
   depth-map displacement, SVG extrusion, procedural geometry), the GLB/Draco/Meshopt/KTX2
   asset pipeline, WebGPU + WebGL renderer setup, HDRI/PBR lighting, tone mapping,
   post-processing (bloom, DoF, SSAO), scroll-driven and skeletal animation, and
   device-adaptive quality tiers. Use this skill whenever the user mentions Three.js, WebGL,
   WebGPU, a 3D model or scene on a webpage, a 3D product viewer or configurator, an
-  animated or interactive 3D hero section, a spinning globe, image-to-3D or photo-to-3D,
+  animated or interactive 3D hero section, a spinning globe, image-to-3D, photo-to-3D, or
+  video-to-3D (a video of an object/place they want as a web 3D model, a 3D scan from
+  phone footage, or a video whose motion should be recreated in 3D),
   GLB/glTF optimization, or "make this load fast on mobile" for anything 3D — even if they
   never say the words "Three.js".
 license: MIT
@@ -28,7 +32,7 @@ resolve that tension rather than pick a side.
 Work in this order. Skipping step 1 or step 2 is the single most common cause of a scene
 that looks great on the dev machine and dies on a phone.
 
-1. **Classify the input** — model? image? photo? logo? text description? → decision tree below
+1. **Classify the input** — model? image? photo? video? logo? text description? → decision tree below
 2. **Set the budget** — pick device tiers and targets before writing scene code → `references/performance.md`
 3. **Get the asset web-ready** — GLB + compression, always → `references/asset-pipeline.md`
 4. **Build the scene** — renderer, loaders, lighting, materials → `references/renderer-setup.md`, `references/cinematic.md`
@@ -57,11 +61,25 @@ What is the user starting from?
 │           → Path D: depth-map displacement / parallax layers / particle cloud.
 │             In-engine, no external model, tiny. references/image-to-3d.md §C
 │
-├── A PHOTO or VIDEO CAPTURE of a real place or object
+├── A PHOTO of a real place or object
 │     ├── Photoreal look matters more than editable geometry
 │     │     → Path S: Gaussian splats. references/image-to-3d.md §B
 │     └── Needs collision/editing/AR anchoring
 │           → Path A (AI image-to-3D) or photogrammetry → mesh
+│
+├── A VIDEO
+│     ├── An orbit/walkaround CAPTURE of a real object or place (they filmed it)
+│     │     ├── Photoreal viewing experience → Path V1: video → Gaussian splat
+│     │     │     (Polycam/Luma/Postshot/KIRI) → three.js splat viewer.
+│     │     │     references/video-to-3d.md §2
+│     │     └── Needs a usable MESH → Path V2: extract sharp frames (ffmpeg) →
+│     │           photogrammetry or multi-view AI image-to-3D → GLB → cleanup.
+│     │           references/video-to-3d.md §3
+│     ├── The video's MOTION is the reference ("animate it like this clip")
+│     │     → Path V3: recreate the motion in code / animation data.
+│     │       references/video-to-3d.md §4
+│     └── The video itself should PLAY inside the 3D scene
+│           → Path V4: VideoTexture on geometry. references/video-to-3d.md §5
 │
 ├── A LOGO, ICON, GLYPH, or FLAT VECTOR
 │     → Path E: SVGLoader + ExtrudeGeometry. Crisp, kilobytes, no AI.
@@ -244,6 +262,7 @@ mobile 3D. Say so plainly if only emulation was possible.
 | `references/device-adaptation.md` | Tier detection, quality presets, mobile/tablet handling, iOS quirks |
 | `references/performance.md` | Budgets, draw-call reduction, disposal, on-demand rendering, profiling, checklist |
 | `references/image-to-3d.md` | Any image or photo input; AI services and APIs; splats; depth displacement; SVG extrude |
+| `references/video-to-3d.md` | Any video input; capture guidance; video→splat; frame extraction→mesh; motion reference; VideoTexture |
 | `references/procedural.md` | Text-description-only input; building scenes from primitives; globes, terrain, particles |
 
 | Script | Purpose |
@@ -252,6 +271,7 @@ mobile 3D. Say so plainly if only emulation was possible.
 | `scripts/fetch-decoders.mjs` | Copy Draco + KTX2 decoders into the site's public dir |
 | `scripts/check-scene.js` | Live draw-call / triangle / texture audit against tier budgets |
 | `scripts/image-to-3d.mjs` | Submit an image to an image-to-3D API, poll, download the GLB |
+| `scripts/extract-frames.sh` / `.ps1` | Pull sharp, well-spaced frames from a video for photogrammetry or multi-view AI input |
 
 | Asset | Purpose |
 |---|---|

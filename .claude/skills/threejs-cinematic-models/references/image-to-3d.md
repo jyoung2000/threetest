@@ -90,7 +90,9 @@ than editable geometry. Splats reproduce reflections, foliage, and fine detail t
 cannot, but have no surface to collide with, light, or edit.
 
 Capture with Luma, Polycam, Postshot, or Scaniverse → `.ply` / `.splat` / `.ksplat`
-(`.spz` is emerging as a compressed interchange format).
+(`.spz` is emerging as a compressed interchange format). These tools also accept video
+directly — for capture guidance, video-specific workflow, and frame extraction to meshes,
+see `references/video-to-3d.md`.
 
 ```bash
 npm install @mkkellogg/gaussian-splats-3d
