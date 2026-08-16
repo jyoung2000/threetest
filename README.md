@@ -8,6 +8,13 @@ lit-sphere dots inland that grow bigger and brighter over high-population region
 off the limb, film grain and vignette. Space is expanded with a restrained
 starfield and faint nebula.
 
+A sparse stream of glowing **connection arcs** rises from populous cities and
+curves into twelve pulsing **data-center hubs** (N. Virginia, Oregon, São Paulo,
+London, Frankfurt, Stockholm, Johannesburg, Dubai, Mumbai, Singapore, Tokyo,
+Sydney) — users connecting to their regional data center, with a flash at the
+user end and a ripple on arrival. A small legend chip explains the visual
+language; only a couple of arcs are in flight at once so the globe stays calm.
+
 ## Run it
 
 `index.html` is a **fully self-contained single file** — Three.js and the continent
@@ -52,7 +59,8 @@ python3 tools/build.py
   from `world-atlas` `land-110m.json`,
 - ~2,200 cities with population ≥200k (`tools/vendor/cities-pop.json`, extracted
   from the `all-the-cities` npm package / GeoNames), packed 5 bytes per city and
-  splatted into a population-influence raster at runtime.
+  splatted into a population-influence raster at runtime; the ~680 largest also
+  serve as connection-arc origins.
 
 Vendor inputs are fetched with `npm pack three@0.185.1 world-atlas@2.0.2` if not
 provided via `--three` / `--land`.
