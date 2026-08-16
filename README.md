@@ -8,12 +8,13 @@ lit-sphere dots inland that grow bigger and brighter over high-population region
 off the limb, film grain and vignette. Space is expanded with a restrained
 starfield and faint nebula.
 
-A sparse stream of glowing **connection arcs** rises from populous cities and
-curves into twelve pulsing **data-center hubs** (N. Virginia, Oregon, São Paulo,
-London, Frankfurt, Stockholm, Johannesburg, Dubai, Mumbai, Singapore, Tokyo,
-Sydney) — users connecting to their regional data center, with a flash at the
-user end and a ripple on arrival. A small legend chip explains the visual
-language; only a couple of arcs are in flight at once so the globe stays calm.
+A lively but airy stream of glowing **connection arcs** rises from populous
+cities all over the world and curves into twelve pulsing **data-center hubs**
+(N. Virginia, Oregon, São Paulo, London, Frankfurt, Stockholm, Johannesburg,
+Dubai, Mumbai, Singapore, Tokyo, Sydney). Every connection ripples at the user
+end on launch and at the hub on arrival; roughly four to six arcs are in flight
+at a time — enough to show users everywhere reaching a data node without ever
+overtaking the globe.
 
 ## Run it
 

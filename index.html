@@ -55,26 +55,6 @@
   #hint.show { opacity: .85; }
   #hint b { color: #b9bec5; font-weight: 500; }
 
-  #legend { position: fixed; left: 16px; top: max(14px, env(safe-area-inset-top, 14px));
-    z-index: 5; pointer-events: none; display: flex; align-items: center; gap: 8px;
-    color: #7d838b; font-size: 10px; letter-spacing: .13em; text-transform: uppercase;
-    opacity: 0; transition: opacity 1.4s ease; }
-  #legend.show { opacity: .8; }
-  #legend .dc { width: 7px; height: 7px; border-radius: 50%; background: #e8ebee;
-    box-shadow: 0 0 6px 1px rgba(232,235,238,.75); flex: none;
-    animation: dcpulse 2.4s ease-out infinite; }
-  #legend .arc-glyph { width: 22px; height: 11px; flex: none; }
-  #legend .arc-glyph path { stroke: #aeb4bb; stroke-width: 1.3; fill: none;
-    stroke-linecap: round; stroke-dasharray: 3 3;
-    animation: arcdash 1.6s linear infinite; }
-  #legend .sep { color: #4a4f55; }
-  @keyframes dcpulse { 0% { box-shadow: 0 0 0 0 rgba(232,235,238,.55); }
-    70%, 100% { box-shadow: 0 0 0 7px rgba(232,235,238,0); } }
-  @keyframes arcdash { to { stroke-dashoffset: -12; } }
-  @media (prefers-reduced-motion: reduce) {
-    #legend .dc, #legend .arc-glyph path { animation: none; }
-  }
-
   #hud { position: fixed; top: 10px; left: 12px; z-index: 6; display: none;
     font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: #6f757d; }
   #hud b { color: #b9c0ca; font-weight: 500; }
@@ -99,12 +79,6 @@
 <div id="vignette"></div>
 <div id="grain" aria-hidden="true"></div>
 <div id="hint"><b>Drag</b> to spin &nbsp;·&nbsp; <b>Click</b> to pulse &nbsp;·&nbsp; <b>Scroll</b> to zoom</div>
-<div id="legend" role="note" aria-label="Legend: pulsing markers are data centers; arcs are users connecting to them">
-  <span class="dc"></span> data center
-  <span class="sep">·</span>
-  <svg class="arc-glyph" viewBox="0 0 22 11" aria-hidden="true"><path d="M1.5 9.5 Q 11 -3.5 20.5 9.5"/></svg>
-  user connections
-</div>
 <div id="hud"></div>
 
 <p class="sr-only">An interactive three-dimensional globe of Earth drawn as thousands of
@@ -773,7 +747,7 @@ function updateStreaks(dt, elapsed) {
 const pulses = [];
 {
   const g = new THREE.PlaneGeometry(1, 1);
-  for (let i = 0; i < 6; i++) {                   // shared by clicks + connection arcs
+  for (let i = 0; i < 14; i++) {                  // shared by clicks + connection arcs
     const m = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       uniforms: { uP: { value: 0 } },
@@ -895,7 +869,7 @@ const dcPositions = DATA_CENTERS.map(dc => {
 const ARC_SEG = 48;
 const arcs = [];
 {
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 10; i++) {
     const g = new THREE.BufferGeometry();
     const n = ARC_SEG * 2;
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
@@ -915,7 +889,7 @@ const arcs = [];
     g.setIndex(idx);
     const m = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { uHead: { value: 0 }, uFade: { value: 0 }, uWidth: { value: 0.0078 } },
+      uniforms: { uHead: { value: 0 }, uFade: { value: 0 }, uWidth: { value: 0.0066 } },
       vertexShader: `
         attribute vec3 aTangent; attribute float aT; attribute float aSide;
         uniform float uWidth;
@@ -935,10 +909,10 @@ const arcs = [];
         varying float vT; varying float vS;
         void main() {
           float vis = smoothstep(uHead, uHead - 0.035, vT);         // draw-on
-          float body = mix(0.42, 1.0, smoothstep(uHead - 0.55, uHead, vT));
+          float body = mix(0.36, 1.0, smoothstep(uHead - 0.55, uHead, vT));
           float head = exp(-abs(vT - uHead) * 30.0) * 2.2;          // traveling packet
           float lat = 1.0 - vS * vS;                                 // soft ribbon edges
-          float a = (vis * body * 0.85 + head) * lat * uFade;
+          float a = (vis * body * 0.62 + head) * lat * uFade;
           if (a < 0.004) discard;
           gl_FragColor = vec4(vec3(0.95, 0.97, 1.0) * a, 1.0);
           #include <tonemapping_fragment>
@@ -998,12 +972,13 @@ function spawnArc() {
     _world.copy(_cityV).applyMatrix4(spinGroup.matrixWorld);
     _camDir.copy(camera.position).sub(_world).normalize();
     if (_world.normalize().dot(_camDir) < 0.25) continue;      // far side / limb: skip
-    // regional hub most of the time, occasional long-haul
+    // regional hub most of the time, a healthy share of long-hauls so the
+    // whole world is visibly reaching data nodes
     const byDist = dcPositions
       .map((p, i) => ({ i, d: p.angleTo(_cityV) }))
       .sort((x, y) => x.d - y.d);
-    const pick = Math.random() < 0.75 ? byDist[0]
-               : byDist[1 + ((Math.random() * 2) | 0)];
+    const pick = Math.random() < 0.62 ? byDist[0]
+               : byDist[1 + ((Math.random() * 3) | 0)];
     if (pick.d < 0.10) continue;                               // origin is the hub city
     const omega = setArcPath(arc, _cityV, dcPositions[pick.i]);
     arc.end = dcPositions[pick.i];
@@ -1014,16 +989,16 @@ function spawnArc() {
     arc.mesh.visible = true;
     arc.mesh.material.uniforms.uHead.value = -0.05;
     arc.mesh.material.uniforms.uFade.value = 1;
-    firePulse(_cityV, 0.24);                                   // the "user" lights up
+    firePulse(_cityV, 0.30);                                   // launch ripple: the "user"
     return true;
   }
   return false;
 }
-let nextArcAt = 2.6;
+let nextArcAt = 2.4;
 function updateArcs(dt, elapsed) {
   if (!reduceMotion && elapsed > nextArcAt && uIntro.value >= 1) {
-    // a few at a time, not a swarm; retry soon if no visible origin was found
-    nextArcAt = elapsed + (spawnArc() ? 1.3 + Math.random() * 1.6 : 0.5);
+    // a lively but airy stream (~4-6 in flight); retry soon on a failed pick
+    nextArcAt = elapsed + (spawnArc() ? 0.55 + Math.random() * 0.85 : 0.35);
   }
   for (const a of arcs) {
     if (!a.active) continue;
@@ -1047,7 +1022,7 @@ if (reduceMotion) {                                // static but still meaningfu
   camera.position.set(0, 0, 4);                    // provisional, so visibility checks work
   tiltGroup.updateWorldMatrix(true, true);
   let placed = 0;
-  for (let i = 0; i < 40 && placed < 3; i++) {
+  for (let i = 0; i < 60 && placed < 4; i++) {
     spawnArc();
     const a = arcs[placed];
     if (a?.active) {
@@ -1383,8 +1358,6 @@ function hideHint() {
 }
 setTimeout(() => hintEl.classList.add('show'), 1600);
 setTimeout(hideHint, 9000);
-// the legend explains data centers + connection arcs; it stays up
-setTimeout(() => document.getElementById('legend').classList.add('show'), 2400);
 
 if (P.grain && !reduceMotion) {
   const c = document.createElement('canvas');
