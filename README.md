@@ -14,9 +14,13 @@ cities all over the world and curves into twelve pulsing **data-center hubs**
 (N. Virginia, Oregon, São Paulo, London, Frankfurt, Stockholm, Johannesburg,
 Dubai, Mumbai, Singapore, Tokyo, Sydney). Every connection ripples at the user
 end on launch and at the hub on arrival, and the traveling packet head carries a
-subtle blue-white tint for pop; roughly six to nine arcs are in flight at a
-time — enough to show users everywhere reaching a data node without ever
-overtaking the globe.
+subtle blue-white tint for pop. A dozen or more connections are in flight at
+once, with occasional bursts of users piling on simultaneously — a live online
+service — while thinner, dimmer arc bodies keep the swarm from overtaking the
+globe. Up close, dots cap at their local grid pitch and sharpen with on-screen
+size, so the zoomed-in surface stays crisp, separated spheres; every star
+twinkles, and the shooting-star rate roughly triples in the fully zoomed-out
+view.
 
 ## Run it
 
