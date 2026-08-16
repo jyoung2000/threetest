@@ -1059,18 +1059,19 @@ const pulses = [];
   for (let i = 0; i < 22; i++) {                  // shared by clicks + connection arcs
     const m = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { uP: { value: 0 } },
+      uniforms: { uP: { value: 0 }, uSoft: { value: 0 } },
       vertexShader: `
         varying vec2 vUv;
         void main() { vUv = uv;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: `
-        uniform float uP; varying vec2 vUv;
+        uniform float uP; uniform float uSoft; varying vec2 vUv;
         void main() {
           float d = length((vUv - 0.5) * 2.0);
           float r = uP * 0.92;
-          float ring = exp(-pow((d - r) * 24.0, 2.0));
-          float a = ring * (1.0 - uP) * 0.75;
+          // soft pulses (connection ripples) are blurrier and much dimmer
+          float ring = exp(-pow((d - r) * mix(24.0, 12.0, uSoft), 2.0));
+          float a = ring * (1.0 - uP) * mix(0.75, 0.30, uSoft);
           if (a < 0.004) discard;
           // near-white with a whisper of blue for pop
           gl_FragColor = vec4(vec3(0.78, 0.87, 1.0) * a, 1.0);
@@ -1081,18 +1082,19 @@ const pulses = [];
     const mesh = new THREE.Mesh(g, m);
     mesh.visible = false;
     mesh.renderOrder = 5;
-    pulses.push({ mesh, t: 0, active: false });
+    pulses.push({ mesh, t: 0, dur: 1.1, active: false });
     spinGroup.add(mesh);
   }
 }
-function firePulse(localPoint, scale = 0.62) {    // localPoint in spinGroup space
+function firePulse(localPoint, scale = 0.62, soft = 0, dur = 1.1) {  // spinGroup space
   const p = pulses.find(p => !p.active) || pulses[0];
   const n = localPoint.clone().normalize();
   p.mesh.position.copy(n.clone().multiplyScalar(R * 1.01));
   // orient the plane's +Z along the surface normal, in the parent's local frame
   p.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
   p.mesh.scale.setScalar(scale);
-  p.t = 0; p.active = true; p.mesh.visible = true;
+  p.mesh.material.uniforms.uSoft.value = soft;
+  p.t = 0; p.dur = dur; p.active = true; p.mesh.visible = true;
 }
 function spawnPulse(worldPoint, scale) {
   firePulse(spinGroup.worldToLocal(worldPoint.clone()), scale);
@@ -1101,9 +1103,10 @@ function updatePulses(dt) {
   for (const p of pulses) {
     if (!p.active) continue;
     p.t += dt;
-    const k = p.t / 1.1;
+    const k = p.t / p.dur;
     if (k >= 1) { p.active = false; p.mesh.visible = false; continue; }
-    p.mesh.material.uniforms.uP.value = k;
+    // ease-out expansion: a gentle bloom rather than a snap
+    p.mesh.material.uniforms.uP.value = 1 - Math.pow(1 - k, 1.7);
   }
 }
 
@@ -1302,7 +1305,7 @@ function spawnArc() {
     arc.mesh.visible = true;
     arc.mesh.material.uniforms.uHead.value = -0.05;
     arc.mesh.material.uniforms.uFade.value = 1;
-    firePulse(_cityV, 0.30);                                   // launch ripple: the "user"
+    firePulse(_cityV, 0.17, 1, 1.4);                           // soft launch ripple
     return true;
   }
   return false;
@@ -1327,7 +1330,7 @@ function updateArcs(dt, elapsed) {
     } else if (!a.arrived) {
       a.arrived = true;
       u.uHead.value = 1.05;
-      firePulse(a.end, 0.30);                                  // arrival ripple at the hub
+      firePulse(a.end, 0.20, 1, 1.4);                          // soft arrival ripple
     } else if (a.t > a.drawDur + a.holdDur) {
       const f = 1 - (a.t - a.drawDur - a.holdDur) / a.fadeDur;
       if (f <= 0) { a.active = false; a.mesh.visible = false; continue; }
