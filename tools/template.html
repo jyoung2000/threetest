@@ -48,6 +48,9 @@
     background-repeat: repeat; will-change: transform; }
   #grain.on { opacity: .05; }
 
+  /* dive-to-dot whiteout: a radial bloom centered on the target dot */
+  #whiteout { position: fixed; inset: 0; pointer-events: none; z-index: 6; display: none; }
+
   #hint { position: fixed; left: 50%; bottom: max(22px, env(safe-area-inset-bottom, 22px));
     transform: translateX(-50%); z-index: 5; pointer-events: none;
     color: #7d838b; font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
@@ -78,7 +81,8 @@
 <div id="stage"></div>
 <div id="vignette"></div>
 <div id="grain" aria-hidden="true"></div>
-<div id="hint"><b>Drag</b> to spin &nbsp;·&nbsp; <b>Click</b> to pulse &nbsp;·&nbsp; <b>Scroll</b> to zoom</div>
+<div id="whiteout" aria-hidden="true"></div>
+<div id="hint"><b>Drag</b> to spin &nbsp;·&nbsp; <b>Click</b> to pulse &nbsp;·&nbsp; <b>Scroll</b> to dive in</div>
 <div id="hud"></div>
 
 <p class="sr-only">An interactive three-dimensional globe of Earth drawn as thousands of
@@ -185,7 +189,7 @@ const canvas = renderer.domElement;
 canvas.setAttribute('role', 'img');
 canvas.setAttribute('tabindex', '0');
 canvas.setAttribute('aria-label',
-  'Interactive particle globe of Earth spinning in space. Glowing arcs show users connecting to data centers, whose markers pulse softly. Drag or arrow keys to spin, click or Enter to pulse, scroll, pinch or plus and minus to zoom.');
+  'Interactive particle globe of Earth spinning in space. Glowing arcs show users connecting to data centers, whose markers pulse softly. Drag or arrow keys to spin, click or Enter to pulse. Scrolling, pinching or plus and minus dives the camera into the nearest glowing dot until the screen turns white; scrolling back returns to the full globe.');
 
 /* ============================================================================
    3. Land mask → dot placement + silhouette texture
@@ -484,7 +488,7 @@ const dotVertex = (hasKind) => `
     ${hasKind ? 'vKind = aKind;' : ''}
     vec4 mv = viewMatrix * wp;
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = max(aSize * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0);
+    gl_PointSize = clamp(aSize * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0, 420.0 * uPixelRatio);
   }`;
 
 const coastMat = new THREE.ShaderMaterial({
@@ -565,7 +569,7 @@ scene.add(dustGroup);
         vec4 mv = viewMatrix * modelMatrix * vec4(p, 1.0);
         vB = aBright * (0.55 + 0.45 * sin(uTime * 0.5 + aPhase * 3.1)) * uIntro;
         gl_Position = projectionMatrix * mv;
-        gl_PointSize = max(aSize * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0);
+        gl_PointSize = clamp(aSize * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0, 420.0 * uPixelRatio);
       }`,
     fragmentShader: `
       varying float vB;
@@ -613,7 +617,7 @@ scene.add(starGroup);
         float tw = 1.0 + 0.35 * sin(uTime * 1.1 + aPhase) * step(0.6, aBright);
         vB = aBright * tw * uIntro;
         gl_Position = projectionMatrix * mv;
-        gl_PointSize = max(aSize * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0);
+        gl_PointSize = clamp(aSize * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0, 420.0 * uPixelRatio);
       }`,
     fragmentShader: `
       varying float vB;
@@ -742,7 +746,7 @@ function spawnStreak() {
   s.active = true; s.mesh.visible = true;
 }
 function updateStreaks(dt, elapsed) {
-  if (!reduceMotion && elapsed > nextStreakAt) {
+  if (!reduceMotion && elapsed > nextStreakAt && diveT < 0.3) {
     spawnStreak();
     nextStreakAt = elapsed + 2.6 + Math.random() * 3.2;
   }
@@ -856,7 +860,7 @@ const dcPositions = DATA_CENTERS.map(dc => {
         vPhase = aPhase;
         vec4 mv = viewMatrix * wp;
         gl_Position = projectionMatrix * mv;
-        gl_PointSize = max(0.040 * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0);
+        gl_PointSize = clamp(0.040 * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0, 420.0 * uPixelRatio);
       }`,
     fragmentShader: `
       uniform float uTime;
@@ -1011,7 +1015,7 @@ function spawnArc() {
 }
 let nextArcAt = 2.4;
 function updateArcs(dt, elapsed) {
-  if (!reduceMotion && elapsed > nextArcAt && uIntro.value >= 1) {
+  if (!reduceMotion && elapsed > nextArcAt && uIntro.value >= 1 && diveT < 0.6) {
     // a lively but airy stream (~6-9 in flight); retry soon on a failed pick
     nextArcAt = elapsed + (spawnArc() ? 0.38 + Math.random() * 0.62 : 0.3);
   }
@@ -1052,7 +1056,15 @@ if (reduceMotion) {                                // static but still meaningfu
 /* ============================================================================
    5. Responsive framing — globe fills the frame like the 9:16 clip
    ========================================================================== */
-let baseDist = 3, dist = 3, distMul = 1, distMulTarget = 1;
+let baseDist = 3, dist = 3, distMul = 1;
+// One continuous "approach" axis drives scroll: [0, DIVE_START] is ordinary
+// zoom (far -> close), beyond it the camera dives into the nearest bright dot
+// until the screen is white. Scrolling back retraces the same path out.
+const DIVE_START = 0.45;
+const APPROACH_HOME = ((2.05 - 1) / (2.05 - 0.62)) * DIVE_START;   // = old default framing
+let approachTarget = APPROACH_HOME, approachCur = APPROACH_HOME;
+let diveT = 0;
+let diveTarget = null;                             // spinGroup-local dot position
 function computeFraming() {
   const aspect = innerWidth / innerHeight;
   const fovY = camera.fov * Math.PI / 180;
@@ -1092,7 +1104,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (activePointers.size === 2) {
     const [a, b] = [...activePointers.values()];
     pinchDist0 = Math.hypot(a[0] - b[0], a[1] - b[1]);
-    pinchMul0 = distMulTarget;
+    pinchMul0 = approachTarget;
     dragging = false;
     return;
   }
@@ -1112,14 +1124,14 @@ canvas.addEventListener('pointermove', (e) => {
   }
   const prev = activePointers.get(e.pointerId);
   activePointers.set(e.pointerId, [e.clientX, e.clientY]);
-  if (activePointers.size === 2) {                  // pinch zoom
+  if (activePointers.size === 2) {                  // pinch: drive the approach axis
     const [a, b] = [...activePointers.values()];
     const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-    if (pinchDist0 > 0) distMulTarget = clampZoom(pinchMul0 * pinchDist0 / d);
+    if (pinchDist0 > 0) approachTarget = clampApproach(pinchMul0 + (d / pinchDist0 - 1) * 0.8);
     noteInteract();
     return;
   }
-  if (!dragging) return;
+  if (!dragging || diveT > 0.05) return;            // no globe drag mid-dive
   const dx = e.clientX - prev[0], dy = e.clientY - prev[1];
   moved += Math.abs(dx) + Math.abs(dy);
   const k = Math.PI / Math.max(globeDiameterPx(), 80);
@@ -1138,7 +1150,7 @@ function endPointer(e) {
   canvas.classList.remove('grabbing');
   const now = performance.now();
   const dtMs = now - pointerDownAt;
-  if (dtMs < 350 && moved < 8) {                     // tap → pulse
+  if (dtMs < 350 && moved < 8 && diveT <= 0.05) {    // tap → pulse (not mid-dive)
     ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
     const hit = raycaster.intersectObject(sphere, false)[0];
@@ -1160,14 +1172,15 @@ function endPointer(e) {
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 
-function clampZoom(v) { return THREE.MathUtils.clamp(v, 0.62, 2.1); }
+function clampApproach(v) { return THREE.MathUtils.clamp(v, 0, 1); }
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  distMulTarget = clampZoom(distMulTarget * Math.exp(e.deltaY * 0.0011));
+  const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? innerHeight : 1;
+  approachTarget = clampApproach(approachTarget + e.deltaY * unit * 0.00026);
   noteInteract();
 }, { passive: false });
 canvas.addEventListener('dblclick', () => {
-  distMulTarget = 1; tiltTargetX = TILT_BASE_X;
+  approachTarget = APPROACH_HOME; tiltTargetX = TILT_BASE_X;
   noteInteract();
 });
 
@@ -1178,8 +1191,8 @@ canvas.addEventListener('keydown', (e) => {
     case 'ArrowRight': spinVel =  Math.abs(BASE_SPIN * 14); break;
     case 'ArrowUp':    tiltTargetX = THREE.MathUtils.clamp(tiltTargetX - step * 0.4, -0.55, 0.8); break;
     case 'ArrowDown':  tiltTargetX = THREE.MathUtils.clamp(tiltTargetX + step * 0.4, -0.55, 0.8); break;
-    case '+': case '=': distMulTarget = clampZoom(distMulTarget * 0.87); break;
-    case '-': case '_': distMulTarget = clampZoom(distMulTarget * 1.15); break;
+    case '+': case '=': approachTarget = clampApproach(approachTarget + 0.06); break;
+    case '-': case '_': approachTarget = clampApproach(approachTarget - 0.06); break;
     case 'Enter': case ' ': {
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       const hit = raycaster.intersectObject(sphere, false)[0];
@@ -1196,6 +1209,34 @@ canvas.addEventListener('keydown', (e) => {
 const parallax = new THREE.Vector2(), parallaxTarget = new THREE.Vector2();
 function updateParallax(e) {
   parallaxTarget.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+}
+
+// nearest bright dot to the screen center on the camera-facing hemisphere —
+// the dive destination. Runs once per dive entry (~27k dots, a few ms).
+const _pk = new THREE.Vector3(), _pkN = new THREE.Vector3(), _pkC = new THREE.Vector3();
+function pickNearestDot() {
+  let best = null, bestScore = Infinity;
+  for (const [pts, attr] of [[coastPts, dots.coastAttr], [fillPts, dots.fillAttr]]) {
+    const pa = pts.geometry.attributes.position;
+    for (let i = 0; i < pa.count; i++) {
+      _pk.fromBufferAttribute(pa, i).applyMatrix4(spinGroup.matrixWorld);
+      _pkN.copy(_pk).normalize();                        // globe sits at the origin
+      _pkC.copy(camera.position).sub(_pk).normalize();
+      if (_pkN.dot(_pkC) < 0.55) continue;               // solidly camera-facing
+      _pk.project(camera);
+      if (_pk.z < -1 || _pk.z > 1) continue;
+      const d2 = _pk.x * _pk.x + _pk.y * _pk.y;
+      if (d2 > 0.5) continue;                            // near-ish the center
+      const bright = Math.min(1, attr[i * 3 + 1]);
+      const score = d2 * (1.25 - 0.45 * bright);         // prefer brighter dots
+      if (score < bestScore) {
+        bestScore = score;
+        best = new THREE.Vector3().fromBufferAttribute(pa, i);
+      }
+    }
+  }
+  // pathological fallback (nothing near center): dive at the sub-camera point
+  return best || spinGroup.worldToLocal(camera.position.clone().setLength(R * 1.003));
 }
 
 /* ============================================================================
@@ -1236,6 +1277,10 @@ function updateResolution(dt) {
 }
 
 const grainEl = document.getElementById('grain');
+const whiteoutEl = document.getElementById('whiteout');
+const _diveWorld = new THREE.Vector3(), _diveN = new THREE.Vector3(),
+      _diveEnd = new THREE.Vector3(), _orbitPos = new THREE.Vector3(),
+      _lookT = new THREE.Vector3(), _ndc = new THREE.Vector3();
 let grainClock = 0;
 function updateGrain(dt) {
   if (!P.grain || reduceMotion) return;
@@ -1256,11 +1301,12 @@ function tick() {
   // intro fade-up
   if (uIntro.value < 1) { uIntro.value = Math.min(1, uIntro.value + dt / 1.4); needsRender = true; }
 
-  // spin: momentum decays toward the clip's base rate; idle → base spin
+  // spin: momentum decays toward the clip's base rate; idle → base spin.
+  // The globe holds still while diving so the target dot stays put.
   if (!dragging) {
     const idle = t - lastInteract;
-    const target = reduceMotion ? 0 : BASE_SPIN;
-    spinVel = THREE.MathUtils.damp(spinVel, target, idle > 1.2 ? 0.9 : 1.6, dt);
+    const target = (reduceMotion || diveT > 0) ? 0 : BASE_SPIN;
+    spinVel = THREE.MathUtils.damp(spinVel, target, diveT > 0 ? 4 : (idle > 1.2 ? 0.9 : 1.6), dt);
     spinGroup.rotation.y += spinVel * dt;
     if (idle > 3.5) tiltTargetX = THREE.MathUtils.damp(tiltTargetX, TILT_BASE_X, 0.55, dt);
   }
@@ -1272,23 +1318,53 @@ function tick() {
     starGroup.rotation.y += 0.0035 * dt;
   }
 
-  // camera: framing distance + zoom + parallax sway
-  distMulTarget = clampZoom(distMulTarget);
-  distMul = THREE.MathUtils.damp(distMul, distMulTarget, 6, dt);
+  // camera: the approach axis — zoom segment, then the dive into a dot
+  approachCur = THREE.MathUtils.damp(approachCur, clampApproach(approachTarget), 5, dt);
+  const zoomSeg = Math.min(approachCur, DIVE_START) / DIVE_START;
+  distMul = 2.05 - zoomSeg * (2.05 - 0.62);
+  diveT = approachCur > DIVE_START ? (approachCur - DIVE_START) / (1 - DIVE_START) : 0;
+  if (diveT > 0 && !diveTarget) diveTarget = pickNearestDot();
+  if (diveT === 0) diveTarget = null;
   dist = baseDist * distMul;
   parallax.lerp(parallaxTarget, 1 - Math.exp(-3 * dt));
   const swayX = P.parallax ? parallax.x * 0.055 : 0;
   const swayY = P.parallax ? parallax.y * 0.04 : 0;
   const driftY = reduceMotion ? 0 : Math.sin(t * 0.1) * 0.012;
-  camera.position.set(swayX, swayY + driftY, dist);
-  camera.lookAt(0, 0, 0);
+  if (!diveTarget) {
+    camera.position.set(swayX, swayY + driftY, dist);
+    camera.lookAt(0, 0, 0);
+    if (camera.near !== 0.1) { camera.near = 0.1; camera.updateProjectionMatrix(); }
+    if (whiteoutEl.style.display !== 'none') whiteoutEl.style.display = 'none';
+  } else {
+    const e = diveT * diveT * (3 - 2 * diveT);           // eased descent
+    _diveWorld.copy(diveTarget).applyMatrix4(spinGroup.matrixWorld);
+    _diveN.copy(_diveWorld).normalize();
+    _diveEnd.copy(_diveWorld).addScaledVector(_diveN, 0.045);
+    _orbitPos.set(swayX * (1 - e), (swayY + driftY) * (1 - e), baseDist * 0.62);
+    camera.position.lerpVectors(_orbitPos, _diveEnd, e);
+    _lookT.set(0, 0, 0).lerp(_diveWorld, Math.min(1, e * 1.5));
+    camera.lookAt(_lookT);
+    const h = Math.max(camera.position.length() - R, 0.02);
+    camera.near = THREE.MathUtils.clamp(h * 0.25, 0.004, 0.1);
+    camera.updateProjectionMatrix();
+    // the dot blooms into a whiteout centered on its screen position
+    const k = THREE.MathUtils.smoothstep(diveT, 0.55, 1.0);
+    if (k > 0.001) {
+      _ndc.copy(_diveWorld).project(camera);
+      const sx = (_ndc.x * 0.5 + 0.5) * 100, sy = (-_ndc.y * 0.5 + 0.5) * 100;
+      const inner = k * 170;
+      whiteoutEl.style.display = 'block';
+      whiteoutEl.style.background =
+        `radial-gradient(circle at ${sx.toFixed(1)}% ${sy.toFixed(1)}%, #fff ${Math.max(0, inner - 24).toFixed(1)}%, rgba(255,255,255,0) ${Math.min(190, inner + 10).toFixed(1)}%)`;
+    } else if (whiteoutEl.style.display !== 'none') whiteoutEl.style.display = 'none';
+  }
 
   updateStreaks(dt, t);
   updateArcs(dt, t);
   updatePulses(dt);
 
   const animating = !reduceMotion || dragging || uIntro.value < 1
-    || Math.abs(spinVel) > 0.0004 || Math.abs(distMul - distMulTarget) > 0.0005
+    || Math.abs(spinVel) > 0.0004 || Math.abs(approachCur - approachTarget) > 0.0006
     || pulses.some(p => p.active) || streaks.some(s => s.active)
     || (!reduceMotion && arcs.some(a => a.active));
   if (animating) needsRender = true;

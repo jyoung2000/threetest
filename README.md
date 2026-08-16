@@ -33,7 +33,7 @@ data are embedded, so it needs no network, no build step and no server:
 |---|---|
 | Drag (mouse / touch) | Spin the globe with momentum; idle auto-spin resumes (~27 s/rev, matching the clip) |
 | Click / tap / Enter | Pulse ring on the globe + a gentle spin kick |
-| Scroll / pinch / `+` `-` | Zoom |
+| Scroll / pinch / `+` `-` | One continuous approach axis: zoom in, then keep scrolling to dive into the nearest bright dot until the screen turns white; scroll back up to return to the full scene |
 | Arrow keys | Spin / tilt |
 | Double-click | Reset view |
 
