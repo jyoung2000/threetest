@@ -22,6 +22,12 @@ size, so the zoomed-in surface stays crisp, separated spheres; every star
 twinkles, and the shooting-star rate roughly triples in the fully zoomed-out
 view.
 
+The page opens on a **cinematic cold-open**: a close-up horizon holds in the
+dark while a bright glow loads along the limb from left to right, then the
+camera pulls back to reveal the full globe as the dots fade up. It lasts about
+3.5 seconds, frames itself correctly at any aspect ratio, fast-forwards on any
+input, and is skipped entirely under reduced-motion.
+
 ## Run it
 
 `index.html` is a **fully self-contained single file** — Three.js and the continent

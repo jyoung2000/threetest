@@ -372,6 +372,33 @@ spinGroup.rotation.y = -(90 + 18) * Math.PI / 180;
 const lightDir = new THREE.Vector3(-0.38, 0.62, 0.68).normalize();
 const uTime = { value: 0 };
 const uIntro = { value: reduceMotion ? 1 : 0 };
+// ---- cinematic cold-open ----
+// phase 0: hold at the close horizon while the glow loads left -> right
+// phase 1: pull back to the normal framing   phase 2: done
+const uIntroGlow = { value: reduceMotion ? 0 : 1 };
+const uSweep = { value: -0.2 };
+// world-x half-span of the visible horizon, per aspect, so the sweep reads
+// edge-to-edge on portrait phones and ultrawides alike (set in computeFraming)
+const uSpanX = { value: 0.9 };
+const INTRO_CAM_D = R * 1.16, INTRO_ALPHA = 0.62;
+const INTRO_SWEEP_DUR = 1.9, INTRO_PULL_DUR = 1.6;
+let introPhase = reduceMotion ? 2 : 0;
+let introT = 0, introSkip = false;
+const _hC = new THREE.Vector3(), _hH = new THREE.Vector3();
+{
+  _hC.set(0, Math.sin(INTRO_ALPHA), Math.cos(INTRO_ALPHA)).multiplyScalar(INTRO_CAM_D);
+  const phi = INTRO_ALPHA + Math.acos(R / INTRO_CAM_D);   // tangent (horizon) point
+  _hH.set(0, Math.sin(phi) * R + 0.085, Math.cos(phi) * R);  // aim a touch above it
+}
+function poseHorizon(e) {                          // e = 1 horizon pose, 0 home pose
+  _orbitPos.set(0, 0, dist);
+  camera.position.lerpVectors(_orbitPos, _hC, e);
+  _lookT.set(0, 0, 0).lerp(_hH, e);
+  camera.lookAt(_lookT);
+  const h = Math.max(camera.position.length() - R, 0.02);
+  camera.near = THREE.MathUtils.clamp(h * 0.25, 0.004, 0.1);
+  camera.updateProjectionMatrix();
+}
 const uPixelRatio = { value: renderer.getPixelRatio() };
 const uProj = { value: 1 };                        // px per world unit at dist 1 (set on resize)
 
@@ -381,7 +408,7 @@ const sphereMat = new THREE.ShaderMaterial({
   uniforms: {
     uLand: { value: landTex },
     uLightDir: { value: lightDir },
-    uTime,
+    uTime, uIntroGlow, uSweep, uSpanX,
   },
   vertexShader: `
     varying vec3 vObjN; varying vec3 vWorldN; varying vec3 vWorldPos;
@@ -394,6 +421,7 @@ const sphereMat = new THREE.ShaderMaterial({
     }`,
   fragmentShader: `
     uniform sampler2D uLand; uniform vec3 uLightDir; uniform float uTime;
+    uniform float uIntroGlow; uniform float uSweep; uniform float uSpanX;
     varying vec3 vObjN; varying vec3 vWorldN; varying vec3 vWorldPos;
     const float PI = 3.14159265359;
     void main() {
@@ -419,6 +447,15 @@ const sphereMat = new THREE.ShaderMaterial({
       float fres = pow(1.0 - abs(dot(N, V)), 4.2);
       col += vec3(0.10, 0.104, 0.112) * fres * (0.35 + 0.65 * smoothstep(-0.4, 0.9, N.y));
 
+      // intro: the body goes black and a thin bright horizon line loads in
+      // from left to right along the limb (tight grazing band only)
+      col *= mix(1.0, 0.06, uIntroGlow);
+      float sx = clamp((vWorldPos.x / uSpanX + 1.0) * 0.5, 0.0, 1.0);
+      float lit = smoothstep(uSweep, uSweep - 0.30, sx);
+      float sweepM = lit + exp(-abs(sx - uSweep) * 9.0) * 1.6;
+      float fresTight = pow(1.0 - abs(dot(N, V)), 10.0);
+      col += vec3(0.95, 0.97, 1.0) * fresTight * sweepM * uIntroGlow * 1.8;
+
       gl_FragColor = vec4(col, 1.0);
       ${'' /* tone map + sRGB */}
       #include <tonemapping_fragment>
@@ -433,7 +470,7 @@ spinGroup.add(sphere);
 const haloMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, transparent: true, depthWrite: false,
   blending: THREE.AdditiveBlending,
-  uniforms: { uIntro },
+  uniforms: { uIntro, uIntroGlow, uSweep, uSpanX },
   vertexShader: `
     varying vec3 vWorldN; varying vec3 vWorldPos;
     void main() {
@@ -443,12 +480,20 @@ const haloMat = new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * viewMatrix * wp;
     }`,
   fragmentShader: `
-    uniform float uIntro;
+    uniform float uIntro; uniform float uIntroGlow; uniform float uSweep; uniform float uSpanX;
     varying vec3 vWorldN; varying vec3 vWorldPos;
     void main() {
       vec3 V = normalize(cameraPosition - vWorldPos);
-      float f = pow(1.0 - abs(dot(normalize(vWorldN), V)), 6.5);
-      vec3 col = vec3(0.42, 0.44, 0.47) * f * 0.26 * uIntro;
+      float nv = abs(dot(normalize(vWorldN), V));
+      float f = pow(1.0 - nv, 6.5);
+      // intro: the atmosphere glow itself is the loading bar, left to right —
+      // a tight band hugging the limb, not a flood
+      float fT = pow(1.0 - nv, 11.0);
+      float sx = clamp((vWorldPos.x / uSpanX + 1.0) * 0.5, 0.0, 1.0);
+      float lit = smoothstep(uSweep, uSweep - 0.30, sx);
+      float sweepM = lit + exp(-abs(sx - uSweep) * 9.0) * 1.6;
+      vec3 col = vec3(0.42, 0.44, 0.47) * f * 0.26 * uIntro
+               + vec3(0.90, 0.93, 1.0) * fT * sweepM * uIntroGlow * 2.0;
       gl_FragColor = vec4(col, 1.0);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
@@ -778,7 +823,7 @@ function spawnStreak() {
   s.active = true; s.mesh.visible = true;
 }
 function updateStreaks(dt, elapsed) {
-  if (!reduceMotion && elapsed > nextStreakAt && diveT < 0.3) {
+  if (!reduceMotion && elapsed > nextStreakAt && diveT < 0.3 && uIntro.value >= 1) {
     spawnStreak();
     // the wider the view, the livelier the sky: fully zoomed out roughly
     // triples the shooting-star rate vs. close-in
@@ -1107,6 +1152,7 @@ const APPROACH_HOME = ((2.05 - 1) / (2.05 - 0.62)) * DIVE_START;   // = old defa
 let approachTarget = APPROACH_HOME, approachCur = APPROACH_HOME;
 let diveT = 0;
 let diveTarget = null;                             // spinGroup-local dot position
+
 function computeFraming() {
   const aspect = innerWidth / innerHeight;
   const fovY = camera.fov * Math.PI / 180;
@@ -1116,6 +1162,10 @@ function computeFraming() {
   baseDist = R / Math.sin(half);
   // logical px per world unit at unit distance; shader multiplies by uPixelRatio
   uProj.value = innerHeight / (2 * Math.tan(fovY / 2));
+  // intro sweep span: how much world-x the horizon shot actually shows at this
+  // aspect (portrait sees a narrow slice, ultrawide nearly the whole limb)
+  const horizonDist = Math.sqrt(INTRO_CAM_D * INTRO_CAM_D - R * R);
+  uSpanX.value = THREE.MathUtils.clamp(Math.tan(fovX / 2) * horizonDist * 1.3, 0.14, 0.9);
 }
 
 /* ============================================================================
@@ -1137,6 +1187,7 @@ function globeDiameterPx() {
 }
 function noteInteract() {
   lastInteract = clock.elapsedTime;
+  introSkip = true;                                 // any input fast-forwards the intro
   hideHint();
 }
 
@@ -1340,8 +1391,11 @@ function tick() {
   updateResolution(dt);
   updateGrain(dt);
 
-  // intro fade-up
-  if (uIntro.value < 1) { uIntro.value = Math.min(1, uIntro.value + dt / 1.4); needsRender = true; }
+  // dot fade-up begins once the horizon sweep hands over to the pull-back
+  if (introPhase >= 1 && uIntro.value < 1) {
+    uIntro.value = Math.min(1, uIntro.value + dt / 1.1);
+    needsRender = true;
+  }
 
   // spin: momentum decays toward the clip's base rate; idle → base spin.
   // The globe holds still while diving so the target dot stays put.
@@ -1365,14 +1419,36 @@ function tick() {
   const zoomSeg = Math.min(approachCur, DIVE_START) / DIVE_START;
   distMul = 2.05 - zoomSeg * (2.05 - 0.62);
   diveT = approachCur > DIVE_START ? (approachCur - DIVE_START) / (1 - DIVE_START) : 0;
-  if (diveT > 0 && !diveTarget) diveTarget = pickNearestDot();
+  if (diveT > 0 && !diveTarget && introPhase === 2) diveTarget = pickNearestDot();
   if (diveT === 0) diveTarget = null;
   dist = baseDist * distMul;
   parallax.lerp(parallaxTarget, 1 - Math.exp(-3 * dt));
   const swayX = P.parallax ? parallax.x * 0.055 : 0;
   const swayY = P.parallax ? parallax.y * 0.04 : 0;
   const driftY = reduceMotion ? 0 : Math.sin(t * 0.1) * 0.012;
-  if (!diveTarget) {
+  if (introPhase < 2) {
+    // cinematic cold-open: hold at the horizon while the glow loads L->R,
+    // then ease back out to the standard framing
+    introT += dt * (introSkip ? 4.5 : 1);
+    if (introPhase === 0) {
+      const p = Math.min(1, introT / INTRO_SWEEP_DUR);
+      uSweep.value = -0.18 + p * 1.42;
+      uIntroGlow.value = 1;
+      poseHorizon(1);
+      if (p >= 1) { introPhase = 1; introT = 0; }
+    } else {
+      const p = Math.min(1, introT / INTRO_PULL_DUR);
+      const e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      uIntroGlow.value = 1 - e;
+      poseHorizon(1 - e);
+      if (p >= 1) {
+        introPhase = 2;
+        uIntroGlow.value = 0;
+        camera.near = 0.1;
+        camera.updateProjectionMatrix();
+      }
+    }
+  } else if (!diveTarget) {
     camera.position.set(swayX, swayY + driftY, dist);
     camera.lookAt(0, 0, 0);
     if (camera.near !== 0.1) { camera.near = 0.1; camera.updateProjectionMatrix(); }
@@ -1489,8 +1565,8 @@ function hideHint() {
   hintHidden = true;
   hintEl.classList.remove('show');
 }
-setTimeout(() => hintEl.classList.add('show'), 1600);
-setTimeout(hideHint, 9000);
+setTimeout(() => hintEl.classList.add('show'), reduceMotion ? 1600 : 4600);
+setTimeout(hideHint, 12000);
 
 if (P.grain && !reduceMotion) {
   const c = document.createElement('canvas');
