@@ -153,11 +153,11 @@ function detectTier() {
 
 const PRESETS = {
   //            dot grids (deg)              counts                    sphere segs      dpr cap
-  desktop: { gridCoast: 0.62, gridFill: 0.60, keepFill: 0.80, stars: 4200, dust: 650,
+  desktop: { gridCoast: 0.62, gridFill: 0.60, keepFill: 0.80, stars: 4600, dust: 650,
              seg: [128, 88], dpr: 2,   grain: true,  parallax: true,  antialias: true  },
-  tablet:  { gridCoast: 0.80, gridFill: 0.78, keepFill: 0.76, stars: 2700, dust: 400,
+  tablet:  { gridCoast: 0.80, gridFill: 0.78, keepFill: 0.76, stars: 3200, dust: 400,
              seg: [96, 64],  dpr: 2,   grain: true,  parallax: false, antialias: true  },
-  mobile:  { gridCoast: 0.95, gridFill: 0.92, keepFill: 0.72, stars: 1600, dust: 260,
+  mobile:  { gridCoast: 0.95, gridFill: 0.92, keepFill: 0.72, stars: 1900, dust: 260,
              seg: [80, 56],  dpr: (navigator.deviceMemory ?? 4) >= 6 ? 1.5 : 1,
              grain: false, parallax: false, antialias: false },
 };
@@ -664,53 +664,173 @@ scene.add(dustGroup);
 /* --- 4e. expanded space: stars + faint nebula ----------------------------- */
 const starGroup = new THREE.Group();
 scene.add(starGroup);
-{
+
+// shared halftone sky-dot shader (twinkle amplitude scales with brightness)
+const SKY_VERT = `
+  attribute float aSize; attribute float aBright; attribute float aPhase;
+  uniform float uProj; uniform float uPixelRatio; uniform float uTime; uniform float uIntro;
+  varying float vB;
+  void main() {
+    vec4 mv = viewMatrix * modelMatrix * vec4(position, 1.0);
+    float f = 0.6 + fract(aPhase * 2.39996) * 1.7;
+    float amp = 0.22 + 0.38 * smoothstep(0.15, 0.8, aBright);
+    float tw = 1.0 + amp * sin(uTime * f + aPhase * 7.0);
+    vB = aBright * tw * uIntro;
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = clamp(aSize * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0, 420.0 * uPixelRatio);
+  }`;
+const SKY_FRAG = `
+  varying float vB;
+  void main() {
+    vec2 pc = gl_PointCoord - 0.5;
+    float d = length(pc) * 2.0;
+    float a = (exp(-d * d * 8.0) + exp(-d * d * 2.0) * 0.22) * vB * 0.68;
+    if (a < 0.003) discard;
+    gl_FragColor = vec4(vec3(0.94, 0.96, 1.0) * a, 1.0);
+    #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+  }`;
+function makeSkyMat() {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uProj, uPixelRatio, uTime, uIntro },
+    vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
+  });
+}
+function addSky(pos, attr, order = -2) {
+  const pts = new THREE.Points(makePointsGeo(pos, attr), makeSkyMat());
+  pts.renderOrder = order;
+  starGroup.add(pts);
+  return pts;
+}
+
+{ // starfield: uniform field + a halftone Milky Way band across the sky
   const rand = mulberry32(4242);
-  const n = P.stars;
-  const pos = new Float32Array(n * 3), attr = [];
-  for (let i = 0; i < n; i++) {
+  const gauss = () => (rand() + rand() + rand()) - 1.5;
+  const nBand = new THREE.Vector3(0.55, 0.72, -0.42).normalize();
+  const bu = new THREE.Vector3().crossVectors(nBand, new THREE.Vector3(0, 0, 1)).normalize();
+  const bv = new THREE.Vector3().crossVectors(nBand, bu);
+  const n = P.stars, nB = Math.floor(P.stars * 0.55);
+  const pos = [], attr = [];
+  for (let i = 0; i < n; i++) {                    // field
     const r = 34 + rand() * 30;
     const th = rand() * Math.PI * 2;
     const ph = Math.acos(2 * rand() - 1);
-    pos[i * 3]     = r * Math.sin(ph) * Math.cos(th);
-    pos[i * 3 + 1] = r * Math.cos(ph);
-    pos[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+    pos.push(r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph), r * Math.sin(ph) * Math.sin(th));
     const bright = Math.pow(rand(), 3.2);          // few bright, many dim
     attr.push(0.05 + bright * 0.16 + rand() * 0.03, 0.05 + bright * 0.75, rand() * Math.PI * 2);
   }
-  const g = makePointsGeo(Array.from(pos), attr);
-  const m = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uProj, uPixelRatio, uTime, uIntro },
-    vertexShader: `
-      attribute float aSize; attribute float aBright; attribute float aPhase;
-      uniform float uProj; uniform float uPixelRatio; uniform float uTime; uniform float uIntro;
-      varying float vB;
-      void main() {
-        vec4 mv = viewMatrix * modelMatrix * vec4(position, 1.0);
-        // every star twinkles: per-star frequency and amplitude from its phase
-        float f = 0.6 + fract(aPhase * 2.39996) * 1.7;
-        float amp = 0.22 + 0.38 * smoothstep(0.15, 0.8, aBright);
-        float tw = 1.0 + amp * sin(uTime * f + aPhase * 7.0);
-        vB = aBright * tw * uIntro;
-        gl_Position = projectionMatrix * mv;
-        gl_PointSize = clamp(aSize * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0, 420.0 * uPixelRatio);
-      }`,
-    fragmentShader: `
-      varying float vB;
-      void main() {
-        vec2 pc = gl_PointCoord - 0.5;
-        float d = length(pc) * 2.0;
-        float a = (exp(-d * d * 8.0) + exp(-d * d * 2.0) * 0.22) * vB * 0.68;
-        if (a < 0.003) discard;
-        gl_FragColor = vec4(vec3(0.94, 0.96, 1.0) * a, 1.0);
-        #include <tonemapping_fragment>
-      #include <colorspace_fragment>
-      }`,
-  });
-  const pts = new THREE.Points(g, m);
-  pts.renderOrder = -2;
-  starGroup.add(pts);
+  for (let i = 0; i < nB; i++) {                   // milky way: dense faint dots
+    const th = rand() * Math.PI * 2;
+    const off = gauss() * 0.11;
+    const dir = new THREE.Vector3()
+      .addScaledVector(bu, Math.cos(th)).addScaledVector(bv, Math.sin(th))
+      .multiplyScalar(Math.cos(off)).addScaledVector(nBand, Math.sin(off));
+    const r = 36 + rand() * 26;
+    pos.push(dir.x * r, dir.y * r, dir.z * r);
+    const bright = Math.pow(rand(), 2.2) * 0.4;
+    attr.push(0.035 + rand() * 0.06, 0.03 + bright, rand() * Math.PI * 2);
+  }
+  addSky(pos, attr);
+}
+
+{ // constellations: bright member stars + dotted halftone link lines
+  const rand = mulberry32(777);
+  const CONSTELLATIONS = [
+    { dir: [-0.55, 0.55, -0.63], s: 7.5,   // Big Dipper
+      st: [[0,0],[1,.15],[2,.1],[2.9,.35],[3.9,.2],[4.1,-.7],[3.1,-.85]],
+      ln: [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,3]] },
+    { dir: [0.62, 0.62, -0.48], s: 5.5,    // Cassiopeia
+      st: [[0,0],[.8,.6],[1.6,.1],[2.4,.75],[3.2,.35]],
+      ln: [[0,1],[1,2],[2,3],[3,4]] },
+    { dir: [0.78, -0.10, -0.62], s: 6.5,   // Orion
+      st: [[0,2],[1.6,2.1],[.55,1],[.8,.95],[1.05,.9],[0,0],[1.7,.1]],
+      ln: [[0,2],[1,4],[2,3],[3,4],[2,5],[4,6]] },
+    { dir: [-0.80, 0.10, -0.58], s: 6.0,   // Cygnus (Northern Cross)
+      st: [[0,-1.3],[0,-.4],[0,.6],[0,1.4],[-1.1,.1],[1.1,.15]],
+      ln: [[0,1],[1,2],[2,3],[4,1],[1,5]] },
+    { dir: [0.05, -0.72, -0.69], s: 4.5,   // Crux (Southern Cross)
+      st: [[0,1],[.15,-.9],[-.8,.1],[.9,.05]],
+      ln: [[0,1],[2,3]] },
+    { dir: [-0.25, 0.86, -0.44], s: 3.8,   // Lyra
+      st: [[0,0],[.3,-.5],[.8,-.55],[.9,-1.05],[.4,-1.0]],
+      ln: [[0,1],[1,2],[2,3],[3,4],[4,1]] },
+  ];
+  const memberPos = [], memberAttr = [], linkPos = [], linkAttr = [];
+  const d3 = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  const pA = new THREE.Vector3(), pB = new THREE.Vector3(), pM = new THREE.Vector3();
+  const RADIUS = 52;
+  for (const c of CONSTELLATIONS) {
+    d3.fromArray(c.dir).normalize();
+    e1.crossVectors(d3, Math.abs(d3.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize();
+    e2.crossVectors(d3, e1);
+    const world = (xy, out) => out.copy(d3).multiplyScalar(RADIUS)
+      .addScaledVector(e1, (xy[0] - 1.6) * c.s).addScaledVector(e2, xy[1] * c.s);
+    for (const stx of c.st) {
+      world(stx, pA);
+      memberPos.push(pA.x, pA.y, pA.z);
+      memberAttr.push(0.16 + rand() * 0.09, 0.45 + rand() * 0.3, rand() * Math.PI * 2);
+    }
+    for (const [i, j] of c.ln) {                   // dotted connecting lines
+      world(c.st[i], pA); world(c.st[j], pB);
+      const steps = Math.max(3, Math.round(pA.distanceTo(pB) / 0.85));
+      for (let k = 1; k < steps; k++) {
+        pM.lerpVectors(pA, pB, k / steps);
+        linkPos.push(pM.x, pM.y, pM.z);
+        linkAttr.push(0.05 + rand() * 0.02, 0.055 + rand() * 0.035, rand() * Math.PI * 2);
+      }
+    }
+  }
+  addSky(memberPos, memberAttr);
+  addSky(linkPos, linkAttr);
+}
+
+{ // galaxies: halftone dot spirals + one edge-on disc
+  const rand = mulberry32(31337);
+  const gauss = () => (rand() + rand() + rand()) - 1.5;
+  const pos = [], attr = [];
+  const d3 = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), p = new THREE.Vector3();
+  function orient(dir) {
+    d3.fromArray(dir).normalize();
+    e1.crossVectors(d3, Math.abs(d3.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize();
+    e2.crossVectors(d3, e1);
+  }
+  function spiral(dir, scale, squash, radius) {
+    orient(dir);
+    for (let i = 0; i < 70; i++) {                 // central bulge
+      const rr = Math.abs(gauss()) * 0.16 * scale;
+      const th = rand() * Math.PI * 2;
+      p.copy(d3).multiplyScalar(radius)
+        .addScaledVector(e1, Math.cos(th) * rr).addScaledVector(e2, Math.sin(th) * rr * squash);
+      pos.push(p.x, p.y, p.z);
+      attr.push(0.05 + rand() * 0.05, 0.10 + rand() * 0.22, rand() * Math.PI * 2);
+    }
+    for (let arm = 0; arm < 2; arm++) {            // two log arms
+      for (let i = 0; i < 130; i++) {
+        const t = rand();
+        const ang = t * 3.6 + arm * Math.PI + gauss() * 0.16;
+        const rr = (0.14 + 0.42 * t) * scale * (1 + gauss() * 0.08);
+        p.copy(d3).multiplyScalar(radius)
+          .addScaledVector(e1, Math.cos(ang) * rr).addScaledVector(e2, Math.sin(ang) * rr * squash);
+        pos.push(p.x, p.y, p.z);
+        attr.push(0.04 + rand() * 0.05, (0.05 + 0.20 * (1 - t)) * (0.7 + rand() * 0.6), rand() * Math.PI * 2);
+      }
+    }
+  }
+  function edgeOn(dir, scale, radius) {            // thin edge-on disc
+    orient(dir);
+    for (let i = 0; i < 150; i++) {
+      const x = gauss() * 0.55 * scale;
+      const y = gauss() * 0.05 * scale * (1 + Math.exp(-x * x * 3) * 2.2);
+      p.copy(d3).multiplyScalar(radius).addScaledVector(e1, x).addScaledVector(e2, y);
+      pos.push(p.x, p.y, p.z);
+      attr.push(0.04 + rand() * 0.04, 0.06 + 0.20 * Math.exp(-Math.abs(x) / (scale * 0.3)), rand() * Math.PI * 2);
+    }
+  }
+  spiral([-0.50, 0.32, -0.80], 6.5, 0.42, 54);
+  spiral([0.72, -0.35, -0.59], 4.8, 0.30, 56);
+  edgeOn([-0.18, -0.55, -0.81], 4.5, 50);
+  addSky(pos, attr, -3);
 }
 { // nebula: 3 merged soft blobs, one draw call, monochrome and very faint
   const quads = [
@@ -798,18 +918,104 @@ const streaks = [];
     streaks.push({ mesh, t: 0, dur: 0, active: false });
   }
 }
+/* --- 4f-bis. telescope satellite: a low-poly observer drifting past ------- */
+const satellite = new THREE.Group();
+{
+  const bodyMat = new THREE.MeshBasicMaterial({ color: 0x2c3036 });
+  const panelMat = new THREE.MeshBasicMaterial({ color: 0x1a1d22, side: THREE.DoubleSide });
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x7c838c, transparent: true, opacity: 0.55 });
+  const withEdges = (geo, mat) => {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 20), edgeMat));
+    return mesh;
+  };
+  const barrel = withEdges(new THREE.CylinderGeometry(0.045, 0.055, 0.19, 8), bodyMat);
+  barrel.rotation.z = Math.PI / 2;                 // telescope tube
+  const bus = withEdges(new THREE.BoxGeometry(0.09, 0.07, 0.07), bodyMat);
+  bus.position.x = -0.12;
+  const panelL = withEdges(new THREE.PlaneGeometry(0.09, 0.26), panelMat);
+  panelL.position.set(-0.12, 0.17, 0);
+  const panelR = withEdges(new THREE.PlaneGeometry(0.09, 0.26), panelMat);
+  panelR.position.set(-0.12, -0.17, 0);
+  satellite.add(barrel, bus, panelL, panelR);
+  // blinking beacon
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.Float32BufferAttribute([-0.12, 0.05, 0.05], 3));
+  const bm = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uProj, uPixelRatio, uTime },
+    vertexShader: `
+      uniform float uProj; uniform float uPixelRatio; uniform float uTime;
+      varying float vB;
+      void main() {
+        vec4 mv = viewMatrix * modelMatrix * vec4(position, 1.0);
+        vB = step(0.72, fract(uTime * 0.9));       // slow blink
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = clamp(0.045 * uProj * uPixelRatio / max(-mv.z, 0.001), 1.0, 60.0 * uPixelRatio);
+      }`,
+    fragmentShader: `
+      varying float vB;
+      void main() {
+        vec2 pc = gl_PointCoord - 0.5;
+        float d = length(pc) * 2.0;
+        float a = exp(-d * d * 6.0) * vB * 0.9;
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(vec3(1.0, 0.95, 0.9) * a, 1.0);
+        #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+      }`,
+  });
+  satellite.add(new THREE.Points(bg, bm));
+  satellite.visible = false;
+  satellite.renderOrder = -1;
+  scene.add(satellite);
+}
+let satT = 0, satDur = 0, satFrom = new THREE.Vector3(), satTo = new THREE.Vector3();
+let nextSatAt = 12 + Math.random() * 10;
+function spawnSatellite() {
+  const y = 1.4 + Math.random() * 1.6, z = -(2.2 + Math.random() * 2.2);
+  const ltr = Math.random() < 0.5;
+  satFrom.set(ltr ? -6 : 6, y, z);
+  satTo.set(ltr ? 6 : -6, y - 0.6 - Math.random() * 0.8, z);
+  satT = 0;
+  satDur = 15 + Math.random() * 6;
+  satellite.visible = true;
+}
+function updateSatellite(dt, elapsed) {
+  if (!reduceMotion && !satellite.visible && elapsed > nextSatAt && diveT < 0.3 && uIntro.value >= 1) {
+    spawnSatellite();
+    nextSatAt = elapsed + 34 + Math.random() * 26;
+  }
+  if (!satellite.visible) return;
+  satT += dt;
+  const p = satT / satDur;
+  if (p >= 1) { satellite.visible = false; return; }
+  satellite.position.lerpVectors(satFrom, satTo, p);
+  satellite.rotation.z = Math.sin(p * Math.PI * 2) * 0.15;
+  satellite.rotation.y += dt * 0.12;               // slow tumble
+}
+
 const STAR_TINT = new THREE.Color(0.86, 0.92, 1.0);    // faint blue-white
 const METEOR_TINT = new THREE.Color(1.0, 0.96, 0.90);  // faint ember-white
 let nextStreakAt = 3 + Math.random() * 3;
+let showerLeft = 0, showerAng = 0;                 // occasional meteor shower
 function spawnStreak() {
   const s = streaks.find(s => !s.active);
   if (!s) return;
-  const meteor = Math.random() < 0.45;
+  const inShower = showerLeft > 0;
+  if (inShower) showerLeft--;
+  const meteor = inShower || Math.random() < 0.45;
   const behind = Math.random() < 0.68;               // most cross the far sky
   const z = behind ? -(3.5 + Math.random() * 5.5) : 1.35 + Math.random() * 0.45;
   const k = behind ? 1.9 : 1;                        // distance compensation
-  const ang = (Math.random() < 0.5 ? 1 : -1)
-            * (meteor ? 0.75 + Math.random() * 0.5 : 0.5 + Math.random() * 0.5);
+  const ang = inShower
+    ? showerAng + (Math.random() - 0.5) * 0.18       // shower: shared radiant
+    : (Math.random() < 0.5 ? 1 : -1)
+      * (meteor ? 0.75 + Math.random() * 0.5 : 0.5 + Math.random() * 0.5);
+  if (!inShower && meteor && Math.random() < 0.14) { // a shower begins
+    showerLeft = 2 + ((Math.random() * 3) | 0);
+    showerAng = ang;
+  }
   const len = (meteor ? 1.1 + Math.random() * 1.1 : 3.4 + Math.random() * 2.4) * k;
   s.mesh.position.set(
     (Math.random() - 0.5) * (behind ? 6.5 : 1.2),
@@ -829,9 +1035,11 @@ function updateStreaks(dt, elapsed) {
   if (!reduceMotion && elapsed > nextStreakAt && diveT < 0.3 && uIntro.value >= 1) {
     spawnStreak();
     // the wider the view, the livelier the sky: fully zoomed out roughly
-    // triples the shooting-star rate vs. close-in
+    // triples the shooting-star rate vs. close-in; showers fire in volleys
     const wide = 1 - Math.min(1, approachCur / DIVE_START);
-    nextStreakAt = elapsed + (2.6 + Math.random() * 3.2) * (1 - 0.68 * wide);
+    nextStreakAt = elapsed + (showerLeft > 0
+      ? 0.35 + Math.random() * 0.5
+      : (2.6 + Math.random() * 3.2) * (1 - 0.68 * wide));
   }
   for (const s of streaks) {
     if (!s.active) continue;
@@ -1501,6 +1709,7 @@ function tick() {
   }
 
   updateStreaks(dt, t);
+  updateSatellite(dt, t);
   updateArcs(dt, t);
   updatePulses(dt);
 
@@ -1633,6 +1842,7 @@ window.__globe = {
     rotY: spinGroup.rotation.y, spinVel, dist, tiltX: tiltGroup.rotation.x,
   }),
   intro: () => ({ phase: introPhase, sweep: uSweep.value, glow: uIntroGlow.value }),
+  satPass: () => spawnSatellite(),
 };
 
 renderer.setAnimationLoop(tick);

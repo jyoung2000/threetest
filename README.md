@@ -5,9 +5,13 @@ An interactive, cinematic Three.js (r185) globe recreated from the reference cli
 dot-matrix Earth spinning in space — beaded coastline dots, a uniform grid of tiny
 lit-sphere dots inland that grow bigger and brighter over high-population regions
 (driven by real GeoNames city data), dust drifting off the limb, film grain and
-vignette. Space is expanded with a dense starfield, faint nebula, and a mix of
-long blue-white shooting stars and short flaring meteorites — most crossing far
-behind the globe, the occasional one passing in front like the reference clip.
+vignette. Space is a full halftone sky: a dense twinkling starfield with a
+Milky Way band, six real constellations (Big Dipper, Cassiopeia, Orion, Cygnus,
+Crux, Lyra) drawn as bright members joined by dotted lines, three dot-spiral
+galaxies (one edge-on), faint nebulae, long blue-white shooting stars and short
+flaring meteorites — occasionally erupting into a shared-radiant meteor
+shower — plus a low-poly telescope satellite with edge-outlined solar panels
+and a blinking beacon that drifts across the sky every half-minute or so.
 
 A lively but airy stream of glowing **connection arcs** rises from populous
 cities all over the world and curves into twelve pulsing **data-center hubs**
