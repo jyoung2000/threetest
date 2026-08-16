@@ -50,6 +50,8 @@
 
   /* dive-to-dot whiteout: a radial bloom centered on the target dot */
   #whiteout { position: fixed; inset: 0; pointer-events: none; z-index: 6; display: none; }
+  /* intro: soft photographic bloom over the horizon peak */
+  #introbloom { position: fixed; inset: 0; pointer-events: none; z-index: 2; display: none; }
 
   #hint { position: fixed; left: 50%; bottom: max(22px, env(safe-area-inset-bottom, 22px));
     transform: translateX(-50%); z-index: 5; pointer-events: none;
@@ -82,6 +84,7 @@
 <div id="vignette"></div>
 <div id="grain" aria-hidden="true"></div>
 <div id="whiteout" aria-hidden="true"></div>
+<div id="introbloom" aria-hidden="true"></div>
 <div id="hint"><b>Drag</b> to spin &nbsp;·&nbsp; <b>Click</b> to pulse &nbsp;·&nbsp; <b>Scroll</b> to dive in</div>
 <div id="hud"></div>
 
@@ -384,11 +387,12 @@ const INTRO_CAM_D = R * 1.16, INTRO_ALPHA = 0.62;
 const INTRO_SWEEP_DUR = 1.9, INTRO_PULL_DUR = 1.6;
 let introPhase = reduceMotion ? 2 : 0;
 let introT = 0, introSkip = false;
-const _hC = new THREE.Vector3(), _hH = new THREE.Vector3();
+const _hC = new THREE.Vector3(), _hH = new THREE.Vector3(), _hPeak = new THREE.Vector3();
 {
   _hC.set(0, Math.sin(INTRO_ALPHA), Math.cos(INTRO_ALPHA)).multiplyScalar(INTRO_CAM_D);
   const phi = INTRO_ALPHA + Math.acos(R / INTRO_CAM_D);   // tangent (horizon) point
-  _hH.set(0, Math.sin(phi) * R + 0.085, Math.cos(phi) * R);  // aim a touch above it
+  _hPeak.set(0, Math.sin(phi) * R, Math.cos(phi) * R);    // the visible peak itself
+  _hH.copy(_hPeak).setY(_hPeak.y + 0.085);                // aim a touch above it
 }
 function poseHorizon(e) {                          // e = 1 horizon pose, 0 home pose
   _orbitPos.set(0, 0, dist);
@@ -447,14 +451,18 @@ const sphereMat = new THREE.ShaderMaterial({
       float fres = pow(1.0 - abs(dot(N, V)), 4.2);
       col += vec3(0.10, 0.104, 0.112) * fres * (0.35 + 0.65 * smoothstep(-0.4, 0.9, N.y));
 
-      // intro: the body goes black and a thin bright horizon line loads in
-      // from left to right along the limb (tight grazing band only)
-      col *= mix(1.0, 0.06, uIntroGlow);
+      // intro: the body goes black and one razor-thin horizon line — sitting
+      // exactly on the silhouette — loads in from left to right, brightest at
+      // the center peak and tapering to a hairline at the sides
+      col *= mix(1.0, 0.04, uIntroGlow);
       float sx = clamp((vWorldPos.x / uSpanX + 1.0) * 0.5, 0.0, 1.0);
+      float cw = 1.0 - min(1.0, abs(sx - 0.5) * 2.0);
+      float prof = 0.32 + 0.68 * pow(cw, 1.8);
       float lit = smoothstep(uSweep, uSweep - 0.30, sx);
-      float sweepM = lit + exp(-abs(sx - uSweep) * 9.0) * 1.6;
-      float fresTight = pow(1.0 - abs(dot(N, V)), 10.0);
-      col += vec3(0.95, 0.97, 1.0) * fresTight * sweepM * uIntroGlow * 1.8;
+      float edge = exp(-abs(sx - uSweep) * 9.0);
+      float sweepM = lit * prof + edge * 1.5;
+      float line = pow(1.0 - abs(dot(N, V)), 34.0);
+      col += vec3(0.96, 0.98, 1.0) * line * sweepM * uIntroGlow * 4.2;
 
       gl_FragColor = vec4(col, 1.0);
       ${'' /* tone map + sRGB */}
@@ -486,14 +494,9 @@ const haloMat = new THREE.ShaderMaterial({
       vec3 V = normalize(cameraPosition - vWorldPos);
       float nv = abs(dot(normalize(vWorldN), V));
       float f = pow(1.0 - nv, 6.5);
-      // intro: the atmosphere glow itself is the loading bar, left to right —
-      // a tight band hugging the limb, not a flood
-      float fT = pow(1.0 - nv, 11.0);
-      float sx = clamp((vWorldPos.x / uSpanX + 1.0) * 0.5, 0.0, 1.0);
-      float lit = smoothstep(uSweep, uSweep - 0.30, sx);
-      float sweepM = lit + exp(-abs(sx - uSweep) * 9.0) * 1.6;
-      vec3 col = vec3(0.42, 0.44, 0.47) * f * 0.26 * uIntro
-               + vec3(0.90, 0.93, 1.0) * fT * sweepM * uIntroGlow * 2.0;
+      // (the intro horizon line lives on the sphere surface; the halo stays
+      // out of it entirely so there is only ever one ring)
+      vec3 col = vec3(0.42, 0.44, 0.47) * f * 0.26 * uIntro;
       gl_FragColor = vec4(col, 1.0);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
@@ -1371,6 +1374,7 @@ function updateResolution(dt) {
 
 const grainEl = document.getElementById('grain');
 const whiteoutEl = document.getElementById('whiteout');
+const introBloomEl = document.getElementById('introbloom');
 const _diveWorld = new THREE.Vector3(), _diveN = new THREE.Vector3(),
       _diveEnd = new THREE.Vector3(), _orbitPos = new THREE.Vector3(),
       _lookT = new THREE.Vector3(), _ndc = new THREE.Vector3();
@@ -1446,7 +1450,26 @@ function tick() {
         uIntroGlow.value = 0;
         camera.near = 0.1;
         camera.updateProjectionMatrix();
+        introBloomEl.style.display = 'none';
       }
+    }
+    // soft photographic bloom hugging the horizon peak, growing as the
+    // loading sweep reaches the center (screen-space, so never a second ring)
+    if (introPhase < 2) {
+      const litC = THREE.MathUtils.smoothstep((uSweep.value - 0.5) / 0.30, 0, 1);
+      const a = litC * uIntroGlow.value * 0.30;
+      if (a > 0.004) {
+        _ndc.copy(_hPeak).project(camera);
+        const bx = (_ndc.x * 0.5 + 0.5) * 100, by = (-_ndc.y * 0.5 + 0.5) * 100;
+        const r = Math.round(Math.min(innerWidth, innerHeight) * 0.42);
+        introBloomEl.style.display = 'block';
+        introBloomEl.style.background =
+          `radial-gradient(circle ${r}px at ${bx.toFixed(1)}% ${by.toFixed(1)}%, rgba(242,246,255,${a.toFixed(3)}) 0%, rgba(242,246,255,0) 68%)`;
+        // keep the bloom above the horizon — fade it out just under the line
+        const mask = `linear-gradient(to bottom, #000 0%, #000 ${(by + 3).toFixed(1)}%, transparent ${(by + 13).toFixed(1)}%)`;
+        introBloomEl.style.maskImage = mask;
+        introBloomEl.style.webkitMaskImage = mask;
+      } else introBloomEl.style.display = 'none';
     }
   } else if (!diveTarget) {
     camera.position.set(swayX, swayY + driftY, dist);
@@ -1609,6 +1632,7 @@ window.__globe = {
   state: () => ({
     rotY: spinGroup.rotation.y, spinVel, dist, tiltX: tiltGroup.rotation.x,
   }),
+  intro: () => ({ phase: introPhase, sweep: uSweep.value, glow: uIntroGlow.value }),
 };
 
 renderer.setAnimationLoop(tick);
