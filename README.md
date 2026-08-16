@@ -4,16 +4,18 @@ An interactive, cinematic Three.js (r185) globe recreated from the reference cli
 `bytedance_video-upscaler_773054b3a5b1464db10f6791f3ebed42_0.mp4`: a monochrome
 dot-matrix Earth spinning in space — beaded coastline dots, a uniform grid of tiny
 lit-sphere dots inland that grow bigger and brighter over high-population regions
-(driven by real GeoNames city data), occasional satellite streaks, dust drifting
-off the limb, film grain and vignette. Space is expanded with a restrained
-starfield and faint nebula.
+(driven by real GeoNames city data), dust drifting off the limb, film grain and
+vignette. Space is expanded with a dense starfield, faint nebula, and a mix of
+long blue-white shooting stars and short flaring meteorites — most crossing far
+behind the globe, the occasional one passing in front like the reference clip.
 
 A lively but airy stream of glowing **connection arcs** rises from populous
 cities all over the world and curves into twelve pulsing **data-center hubs**
 (N. Virginia, Oregon, São Paulo, London, Frankfurt, Stockholm, Johannesburg,
 Dubai, Mumbai, Singapore, Tokyo, Sydney). Every connection ripples at the user
-end on launch and at the hub on arrival; roughly four to six arcs are in flight
-at a time — enough to show users everywhere reaching a data node without ever
+end on launch and at the hub on arrival, and the traveling packet head carries a
+subtle blue-white tint for pop; roughly six to nine arcs are in flight at a
+time — enough to show users everywhere reaching a data node without ever
 overtaking the globe.
 
 ## Run it
