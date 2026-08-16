@@ -46,7 +46,7 @@
   #grain { position: fixed; left: -25%; top: -25%; width: 150%; height: 150%;
     pointer-events: none; z-index: 4; opacity: 0; mix-blend-mode: screen;
     background-repeat: repeat; will-change: transform; }
-  #grain.on { opacity: .05; }
+  #grain.on { opacity: .02; }      /* whisper of texture — space stays deep black */
 
   /* dive-to-dot whiteout: a radial bloom centered on the target dot */
   #whiteout { position: fixed; inset: 0; pointer-events: none; z-index: 6; display: none; }
@@ -668,7 +668,7 @@ const SKY_VERT = `
   void main() {
     vec4 mv = viewMatrix * modelMatrix * vec4(position, 1.0);
     float f = 0.6 + fract(aPhase * 2.39996) * 1.7;
-    float amp = 0.22 + 0.38 * smoothstep(0.15, 0.8, aBright);
+    float amp = 0.30 + 0.42 * smoothstep(0.15, 0.8, aBright);
     float tw = 1.0 + amp * sin(uTime * f + aPhase * 7.0);
     vB = aBright * tw * uIntro;
     gl_Position = projectionMatrix * mv;
@@ -679,7 +679,7 @@ const SKY_FRAG = `
   void main() {
     vec2 pc = gl_PointCoord - 0.5;
     float d = length(pc) * 2.0;
-    float a = (exp(-d * d * 8.0) + exp(-d * d * 2.0) * 0.22) * vB * 0.68;
+    float a = (exp(-d * d * 8.0) + exp(-d * d * 2.0) * 0.22) * vB * 0.80;
     if (a < 0.003) discard;
     gl_FragColor = vec4(vec3(0.94, 0.96, 1.0) * a, 1.0);
     __TONE__
@@ -722,8 +722,8 @@ function addSky(pos, attr, order = -2) {
       .multiplyScalar(Math.cos(off)).addScaledVector(nBand, Math.sin(off));
     const r = 36 + rand() * 26;
     pos.push(dir.x * r, dir.y * r, dir.z * r);
-    const bright = Math.pow(rand(), 2.2) * 0.4;
-    attr.push(0.035 + rand() * 0.06, 0.03 + bright, rand() * Math.PI * 2);
+    const bright = Math.pow(rand(), 2.2) * 0.32;
+    attr.push(0.035 + rand() * 0.06, 0.022 + bright, rand() * Math.PI * 2);
   }
   addSky(pos, attr);
 }
@@ -828,9 +828,9 @@ function addSky(pos, attr, order = -2) {
 }
 { // nebula: 3 merged soft blobs, one draw call, monochrome and very faint
   const quads = [
-    { x: -10, y:  4, z: -26, s: 26, a: 0.050 },
-    { x:  12, y: -6, z: -30, s: 30, a: 0.038 },
-    { x:   3, y: 10, z: -34, s: 34, a: 0.030 },
+    { x: -10, y:  4, z: -26, s: 26, a: 0.018 },
+    { x:  12, y: -6, z: -30, s: 30, a: 0.013 },
+    { x:   3, y: 10, z: -34, s: 34, a: 0.010 },
   ];
   const pos = [], uv = [], alpha = [], idx = [];
   quads.forEach((q, i) => {
