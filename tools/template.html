@@ -383,7 +383,8 @@ const uSweep = { value: -0.2 };
 // world-x half-span of the visible horizon, per aspect, so the sweep reads
 // edge-to-edge on portrait phones and ultrawides alike (set in computeFraming)
 const uSpanX = { value: 0.9 };
-const INTRO_CAM_D = R * 1.16, INTRO_ALPHA = 0.62;
+// closer camera flattens the visible horizon into the reference's shallow arc
+const INTRO_CAM_D = R * 1.10, INTRO_ALPHA = 0.62;
 const INTRO_SWEEP_DUR = 1.9, INTRO_PULL_DUR = 1.6;
 let introPhase = reduceMotion ? 2 : 0;
 let introT = 0, introSkip = false;
@@ -392,7 +393,7 @@ const _hC = new THREE.Vector3(), _hH = new THREE.Vector3(), _hPeak = new THREE.V
   _hC.set(0, Math.sin(INTRO_ALPHA), Math.cos(INTRO_ALPHA)).multiplyScalar(INTRO_CAM_D);
   const phi = INTRO_ALPHA + Math.acos(R / INTRO_CAM_D);   // tangent (horizon) point
   _hPeak.set(0, Math.sin(phi) * R, Math.cos(phi) * R);    // the visible peak itself
-  _hH.copy(_hPeak).setY(_hPeak.y + 0.085);                // aim a touch above it
+  _hH.copy(_hPeak).setY(_hPeak.y + 0.028);                // peak sits just below center
 }
 function poseHorizon(e) {                          // e = 1 horizon pose, 0 home pose
   _orbitPos.set(0, 0, dist);
@@ -457,12 +458,12 @@ const sphereMat = new THREE.ShaderMaterial({
       col *= mix(1.0, 0.04, uIntroGlow);
       float sx = clamp((vWorldPos.x / uSpanX + 1.0) * 0.5, 0.0, 1.0);
       float cw = 1.0 - min(1.0, abs(sx - 0.5) * 2.0);
-      float prof = 0.32 + 0.68 * pow(cw, 1.8);
+      float prof = 0.14 + 0.86 * pow(cw, 1.5);   // hairline-faint at the sides
       float lit = smoothstep(uSweep, uSweep - 0.30, sx);
       float edge = exp(-abs(sx - uSweep) * 9.0);
       float sweepM = lit * prof + edge * 1.5;
-      float line = pow(1.0 - abs(dot(N, V)), 34.0);
-      col += vec3(0.96, 0.98, 1.0) * line * sweepM * uIntroGlow * 4.2;
+      float line = pow(1.0 - abs(dot(N, V)), 58.0);   // razor-tight to the silhouette
+      col += vec3(0.96, 0.98, 1.0) * line * sweepM * uIntroGlow * 6.5;
 
       gl_FragColor = vec4(col, 1.0);
       ${'' /* tone map + sRGB */}
@@ -1556,6 +1557,7 @@ let hudEl = document.getElementById('hud');
 if (DEBUG) hudEl.style.display = 'block';
 
 function updateResolution(dt) {
+  if (introPhase < 2) return;      // hold native DPR through the intro — stay crisp
   accum += dt; frames++; cooldown -= dt;
   if (accum < 1) return;
   fps = Math.round(frames / accum);
@@ -1635,8 +1637,9 @@ function tick() {
     introT += dt * (introSkip ? 4.5 : 1);
     if (introPhase === 0) {
       const p = Math.min(1, introT / INTRO_SWEEP_DUR);
-      uSweep.value = -0.18 + p * 1.42;
-      uIntroGlow.value = 1;
+      const pe = p * p * (3 - 2 * p);              // eased glide, no linear march
+      uSweep.value = -0.18 + pe * 1.42;
+      uIntroGlow.value = Math.min(1, p * 5 + 0.15);  // line breathes in at the start
       poseHorizon(1);
       if (p >= 1) { introPhase = 1; introT = 0; }
     } else {
@@ -1660,10 +1663,10 @@ function tick() {
       if (a > 0.004) {
         _ndc.copy(_hPeak).project(camera);
         const bx = (_ndc.x * 0.5 + 0.5) * 100, by = (-_ndc.y * 0.5 + 0.5) * 100;
-        const r = Math.round(Math.min(innerWidth, innerHeight) * 0.42);
+        const r = Math.round(Math.min(innerWidth, innerHeight) * 0.34);
         introBloomEl.style.display = 'block';
         introBloomEl.style.background =
-          `radial-gradient(circle ${r}px at ${bx.toFixed(1)}% ${by.toFixed(1)}%, rgba(242,246,255,${a.toFixed(3)}) 0%, rgba(242,246,255,0) 68%)`;
+          `radial-gradient(circle ${r}px at ${bx.toFixed(1)}% ${by.toFixed(1)}%, rgba(244,248,255,${(a * 1.25).toFixed(3)}) 0%, rgba(242,246,255,${(a * 0.5).toFixed(3)}) 34%, rgba(242,246,255,0) 70%)`;
         // keep the bloom above the horizon — fade it out just under the line
         const mask = `linear-gradient(to bottom, #000 0%, #000 ${(by + 3).toFixed(1)}%, transparent ${(by + 13).toFixed(1)}%)`;
         introBloomEl.style.maskImage = mask;
